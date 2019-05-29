@@ -1,0 +1,97 @@
+{
+"AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "EC2 Instance and Jenkins",
+    "Metadata": {
+
+    },
+    "Parameters": {
+        "InstanceType":{
+            "Type": "String",
+            "Default": "t2.small",
+            "Description": "Instance Type"
+        },
+        "AMI":{
+            "Type": "AWS::EC2::Image::Id",
+            "Default": "ami-0c6b1d09930fac512",
+            "Description": "AMI Id"
+        },
+        "AccessKey":{
+            "Type": "AWS::EC2::KeyPair::KeyName",
+            "Description": "Access Key Name"
+        },
+        "VPC": {
+            "Type": "AWS::EC2::VPC::Id",
+            "Description": "VPC Id"
+        },
+        "Subnet" : {
+            "Type" : "AWS::EC2::Subnet::Id",
+            "Description" : "Subnet Id"
+        }
+        
+    },
+    "Mappings": {
+
+    },
+    "Conditions": {
+
+    },
+    "Resources": {
+        "mySecurityGroup" : {
+            "Type" : "AWS::EC2::SecurityGroup",
+            "Properties" : {
+                "GroupDescription" : "Jenkins SG",
+                "SecurityGroupIngress" : [ 
+                    {
+                        "IpProtocol" : "tcp",
+                        "FromPort" : 8080,
+                        "ToPort" : 8080,
+                        "CidrIp" : "0.0.0.0/0"
+                    },
+                    {
+                        "IpProtocol" : "tcp",
+                        "FromPort" : 22,
+                        "ToPort" : 22,
+                        "CidrIp" : "0.0.0.0/0"
+                    }
+                ],
+                "VpcId" : { "Ref": "VPC" }
+            }
+        },
+        "myEC2Instance": {
+            "Type": "AWS::EC2::Instance",
+            "Properties": {
+                "KeyName": { "Ref": "AccessKey" },
+                "ImageId": { "Ref": "AMI" },
+                "InstanceType": { "Ref": "InstanceType" },
+                "SecurityGroupIds" : [
+                    { "Ref": "mySecurityGroup" }
+                ],
+                "SubnetId" : { "Ref": "Subnet" },
+                "UserData": {
+                    "Fn::Base64": {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "#!/bin/bash -xe\n",
+                                "exec > >(tee /var/log/user-data.log) 2>&1\n",
+                                "sudo yum -y update\n",
+                                "sudo yum -y install java-1.8.0-openjdk-devel\n",
+                                "curl --silent --location http://pkg.jenkins-ci.org/redhat-stable/jenkins.repo | sudo tee /etc/yum.repos.d/jenkins.repo\n",
+                                "sudo rpm --import https://jenkins-ci.org/redhat/jenkins-ci.org.key\n",
+                                "sudo yum -y install jenkins\n",
+                                "sudo systemctl start jenkins\n",
+                                "sudo systemctl enable jenkins\n",
+                                "sleep 180\n",
+                                "sudo sed -i 's/<passwordHash.*/<passwordHash>s4lt:64312818e2025e2370706c17e6e0fc173aa8e766d7046ab29d43df2c19cb1429<\\/passwordHash>/g' /var/lib/jenkins/users/admin_*/config.xml\n",
+                                "sudo systemctl restart jenkins\n"
+                            ]
+                        ]
+                    }
+                }
+            }
+        }
+    },
+    "Outputs": {
+
+    }
+}
