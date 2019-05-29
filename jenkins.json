@@ -74,16 +74,18 @@
                             [
                                 "#!/bin/bash -xe\n",
                                 "exec > >(tee /var/log/user-data.log) 2>&1\n",
-                                "sudo yum -y update\n",
-                                "sudo yum -y install java-1.8.0-openjdk-devel\n",
+                                "sudo su\n",
+                                "yum -y update\n",
+                                "yum -y install java-1.8.0-openjdk-devel\n",
                                 "curl --silent --location http://pkg.jenkins-ci.org/redhat-stable/jenkins.repo | sudo tee /etc/yum.repos.d/jenkins.repo\n",
-                                "sudo rpm --import https://jenkins-ci.org/redhat/jenkins-ci.org.key\n",
-                                "sudo yum -y install jenkins\n",
-                                "sudo systemctl start jenkins\n",
-                                "sudo systemctl enable jenkins\n",
-                                "sleep 180\n",
-                                "sudo sed -i 's/<passwordHash.*/<passwordHash>s4lt:64312818e2025e2370706c17e6e0fc173aa8e766d7046ab29d43df2c19cb1429<\\/passwordHash>/g' /var/lib/jenkins/users/admin_*/config.xml\n",
-                                "sudo systemctl restart jenkins\n"
+                                "rpm --import https://jenkins-ci.org/redhat/jenkins-ci.org.key\n",
+                                "yum -y install jenkins\n",
+                                "wget -O /var/lib/jenkins.tar.gz https://github.com/EduardoVega/ec2-jenkins-cf/raw/master/jenkins.tar.gz\n",
+                                "tar -xvzf /var/lib/jenkins.tar.gz -C /var/lib/\n",
+                                "AWSHOSTNAME=$(curl http://169.254.169.254/latest/meta-data/public-hostname)\n",
+                                "sed -i \"s/<jenkinsUrl.*/<jenkinsUrl>http:\\/\\/${AWSHOSTNAME}:8080\\/<\\/jenkinsUrl>/g\" /var/lib/jenkins/jenkins.model.JenkinsLocationConfiguration.xml\n",
+                                "systemctl start jenkins\n",
+                                "systemctl enable jenkins\n"
                             ]
                         ]
                     }
