@@ -1,6 +1,6 @@
 {
 "AWSTemplateFormatVersion": "2010-09-09",
-    "Description": "EC2 Instance and Jenkins",
+    "Description": "EC2 Instance, EFS and Jenkins",
     "Metadata": {
 
     },
@@ -9,11 +9,6 @@
             "Type": "String",
             "Default": "t2.small",
             "Description": "Instance Type"
-        },
-        "AMI":{
-            "Type": "AWS::EC2::Image::Id",
-            "Default": "ami-0c6b1d09930fac512",
-            "Description": "AMI Id"
         },
         "AccessKey":{
             "Type": "AWS::EC2::KeyPair::KeyName",
@@ -27,19 +22,20 @@
             "Type" : "AWS::EC2::Subnet::Id",
             "Description" : "Subnet Id"
         }
-        
     },
     "Mappings": {
-
+        "RegionAMIMap":{
+            "us-east-1": { "HVM64" : "ami-0c6b1d09930fac512"}
+        }
     },
     "Conditions": {
 
     },
     "Resources": {
-        "mySecurityGroup" : {
+        "EC2SecurityGroup" : {
             "Type" : "AWS::EC2::SecurityGroup",
             "Properties" : {
-                "GroupDescription" : "Jenkins SG",
+                "GroupDescription" : "EC2 and Jenkins SG",
                 "SecurityGroupIngress" : [ 
                     {
                         "IpProtocol" : "tcp",
@@ -57,14 +53,46 @@
                 "VpcId" : { "Ref": "VPC" }
             }
         },
-        "myEC2Instance": {
+        "EFSSecurityGroup" : {
+            "Type" : "AWS::EC2::SecurityGroup",
+            "Properties" : {
+                "GroupDescription" : "EFS SG for EC2 and Jenkins",
+                "SecurityGroupIngress" : [ 
+                    {
+                        "IpProtocol" : "tcp",
+                        "FromPort" : 2049,
+                        "ToPort" : 2049,
+                        "SourceSecurityGroupId": { "Ref": "EC2SecurityGroup" }
+                    }
+                ],
+                "VpcId" : { "Ref": "VPC" }
+            }
+        },
+        "EFS": {
+            "Type": "AWS::EFS::FileSystem",
+            "Properties": {
+                "Encrypted": false,
+                "PerformanceMode": "generalPurpose"
+            }
+        },
+        "MountTarget": {
+            "Type": "AWS::EFS::MountTarget",
+            "Properties": {
+              "FileSystemId": { "Ref": "EFS" },
+              "SubnetId": { "Ref": "Subnet" },
+              "SecurityGroups": [ { "Ref": "EFSSecurityGroup" } ]        
+            }
+        },
+        "EC2Instance": {
             "Type": "AWS::EC2::Instance",
             "Properties": {
                 "KeyName": { "Ref": "AccessKey" },
-                "ImageId": { "Ref": "AMI" },
+                "ImageId": {
+                    "Fn::FindInMap": [ "RegionAMIMap", { "Ref": "AWS::Region" }, "HVM64" ]
+                },
                 "InstanceType": { "Ref": "InstanceType" },
                 "SecurityGroupIds" : [
-                    { "Ref": "mySecurityGroup" }
+                    { "Ref": "EC2SecurityGroup" }
                 ],
                 "SubnetId" : { "Ref": "Subnet" },
                 "UserData": {
@@ -77,20 +105,39 @@
                                 "sudo su\n",
                                 "yum -y update\n",
                                 "yum -y install java-1.8.0-openjdk-devel\n",
+                                "yum install -y nfs-utils\n",
                                 "curl --silent --location http://pkg.jenkins-ci.org/redhat-stable/jenkins.repo | sudo tee /etc/yum.repos.d/jenkins.repo\n",
                                 "rpm --import https://jenkins-ci.org/redhat/jenkins-ci.org.key\n",
                                 "yum -y install jenkins\n",
+                                "EC2_REGION=",
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "\n",
+                                "EFS_FILE_SYSTEM_ID=",
+                                {
+                                    "Ref": "EFS"
+                                },
+                                "\n",
+                                "DIR_SRC=$EFS_FILE_SYSTEM_ID.efs.$EC2_REGION.amazonaws.com\n",
+                                "mkdir -p /var/lib/jenkins\n",
+                                "echo \"$DIR_SRC:/ /var/lib/jenkins nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 0 0\" >> /etc/fstab\n",
+                                "#echo \"$EFS_FILE_SYSTEM_ID:/ /var/lib/jenkins efs defaults,_netdev 0 0\" >> /etc/fstab\n",
+                                "mount -a -t nfs4\n",
+                                "#mount -a -t efs defaults\n",
                                 "wget -O /var/lib/jenkins.tar.gz https://github.com/EduardoVega/ec2-jenkins-cf/raw/master/jenkins.tar.gz\n",
-                                "tar -xvzf /var/lib/jenkins.tar.gz -C /var/lib/\n",
+                                "tar -xvzf /var/lib/jenkins.tar.gz --strip 1 -C /var/lib/jenkins\n",
                                 "AWSHOSTNAME=$(curl http://169.254.169.254/latest/meta-data/public-hostname)\n",
                                 "sed -i \"s/<jenkinsUrl.*/<jenkinsUrl>http:\\/\\/${AWSHOSTNAME}:8080\\/<\\/jenkinsUrl>/g\" /var/lib/jenkins/jenkins.model.JenkinsLocationConfiguration.xml\n",
+                                "chown jenkins:jenkins /var/lib/jenkins\n",
                                 "systemctl start jenkins\n",
                                 "systemctl enable jenkins\n"
                             ]
                         ]
                     }
                 }
-            }
+            },
+            "DependsOn": "MountTarget"
         }
     },
     "Outputs": {
